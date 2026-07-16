@@ -5,19 +5,22 @@
 # Usage:
 #   ./video_tool.sh /path/to/video.mp4
 #   ./video_tool.sh /path/to/video.webm
+#   ./video_tool.sh /path/to/video.mov
 #
 # Then choose an action:
-#   1) Fix MP4 VFR -> CFR (removes "slow" playback glitches)  [outputs: *_cfr.mp4]
-#   2) Make small WebM (mp4->webm or webm->tiny)             [outputs: .webm or *_tiny.webm]
+#   1) Fix VFR -> CFR (removes "slow" playback glitches)     [outputs: *_cfr.mp4]
+#   2) Make small WebM (mp4/mov->webm or webm->tiny)         [outputs: .webm or *_tiny.webm]
+#   3) Compress MOV -> MP4 (H.264, CRF 23, AAC audio)       [outputs: *_compressed.mp4]
 #
 # Defaults chosen from your working settings:
 #   - WebM shrink: VP9, CRF 33, no audio, scale down to max 720w (never upscale)
 #   - VFR fix: CFR at 30fps, re-encode video only (x264), copy audio
+#   - MOV compress: H.264 CRF 23, AAC audio, no scale change
 
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 /path/to/video.(mp4|webm)"
+  echo "Usage: $0 /path/to/video.(mp4|webm|mov)"
   exit 1
 fi
 
@@ -36,16 +39,17 @@ EXT="${EXT:l}" # lowercase in zsh
 echo "Input: $INPUT"
 echo ""
 echo "Choose an action:"
-echo "  1) Fix MP4 VFR -> CFR (removes slow playback glitches)  -> ${NAME}_cfr.mp4"
-echo "  2) Convert/shrink to WebM (mp4->.webm, webm->_tiny.webm)"
+echo "  1) Fix VFR -> CFR (removes slow playback glitches)       -> ${NAME}_cfr.mp4"
+echo "  2) Convert/shrink to WebM (mp4/mov->.webm, webm->_tiny.webm)"
+echo "  3) Compress MOV -> MP4 (H.264 CRF 23, AAC audio)        -> ${NAME}_compressed.mp4"
 echo ""
-print -n "Enter 1 or 2: "
+print -n "Enter 1, 2, or 3: "
 read -r CHOICE
 
 case "$CHOICE" in
   1)
-    if [[ "$EXT" != "mp4" ]]; then
-      echo "Option 1 requires an .mp4 input (got .$EXT)"
+    if [[ "$EXT" != "mp4" && "$EXT" != "mov" ]]; then
+      echo "Option 1 requires an .mp4 or .mov input (got .$EXT)"
       exit 1
     fi
 
@@ -68,12 +72,12 @@ case "$CHOICE" in
     CRF="${CRF:-33}"
     MAXW="${MAXW:-720}"
 
-    if [[ "$EXT" == "mp4" ]]; then
+    if [[ "$EXT" == "mp4" || "$EXT" == "mov" ]]; then
       OUT="$DIR/${NAME}.webm"
     elif [[ "$EXT" == "webm" ]]; then
       OUT="$DIR/${NAME}_tiny.webm"
     else
-      echo "Option 2 supports .mp4 or .webm inputs (got .$EXT)"
+      echo "Option 2 supports .mp4, .mov, or .webm inputs (got .$EXT)"
       exit 1
     fi
 
@@ -83,6 +87,25 @@ case "$CHOICE" in
     ffmpeg -i "$INPUT" \
       -vf "scale='min(${MAXW},iw)':-2" -an \
       -c:v libvpx-vp9 -crf "$CRF" -b:v 0 \
+      "$OUT"
+    ;;
+
+  3)
+    if [[ "$EXT" != "mov" ]]; then
+      echo "Option 3 requires a .mov input (got .$EXT)"
+      exit 1
+    fi
+
+    CRF="${CRF:-23}"
+
+    OUT="$DIR/${NAME}_compressed.mp4"
+    echo "Output: $OUT"
+    echo "Compressing MOV -> MP4 (H.264 CRF=${CRF}, AAC audio)..."
+
+    ffmpeg -i "$INPUT" \
+      -c:v libx264 -crf "$CRF" -preset slow \
+      -c:a aac -b:a 128k \
+      -movflags +faststart \
       "$OUT"
     ;;
 
